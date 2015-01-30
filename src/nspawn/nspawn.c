@@ -187,6 +187,7 @@ static unsigned long arg_personality = 0xffffffffLU;
 static char *arg_image = NULL;
 static Volatile arg_volatile = VOLATILE_NO;
 static ExposePort *arg_expose_ports = NULL;
+static bool arg_enable_seccomp = false;
 
 static void help(void) {
         printf("%s [OPTIONS...] [PATH] [ARGUMENTS...]\n\n"
@@ -246,6 +247,7 @@ static void help(void) {
                "     --keep-unit            Do not register a scope for the machine, reuse\n"
                "                            the service unit nspawn is running in\n"
                "     --volatile[=MODE]      Run the system in volatile mode\n"
+               "     --enable-seccomp       Enable seccomp protections\n"
                , program_invocation_short_name);
 }
 
@@ -294,6 +296,7 @@ static int parse_argv(int argc, char *argv[]) {
                 ARG_PERSONALITY,
                 ARG_VOLATILE,
                 ARG_TEMPLATE,
+                ARG_ENABLE_SECCOMP,
         };
 
         static const struct option options[] = {
@@ -331,6 +334,7 @@ static int parse_argv(int argc, char *argv[]) {
                 { "image",                 required_argument, NULL, 'i'                   },
                 { "volatile",              optional_argument, NULL, ARG_VOLATILE          },
                 { "port",                  required_argument, NULL, 'p'                   },
+                { "enable-seccomp",        no_argument,       NULL, ARG_ENABLE_SECCOMP    },
                 {}
         };
 
@@ -730,6 +734,10 @@ static int parse_argv(int argc, char *argv[]) {
 
                         break;
                 }
+
+                case ARG_ENABLE_SECCOMP:
+                        arg_enable_seccomp = true;
+                        break;
 
                 case '?':
                         return -EINVAL;
@@ -2482,6 +2490,9 @@ static int setup_ipvlan(pid_t pid) {
 static int setup_seccomp(void) {
 
 #ifdef HAVE_SECCOMP
+        if (!arg_enable_seccomp)
+                return 0;
+
         static const int blacklist[] = {
                 SCMP_SYS(kexec_load),
                 SCMP_SYS(open_by_handle_at),

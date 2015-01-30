@@ -53,7 +53,7 @@ _systemd_nspawn() {
         local i verb comps
 
         local -A OPTS=(
-               [STANDALONE]='-h --help --version --private-network -b --boot --read-only -q --quiet --share-system --keep-unit --network-veth -j'
+               [STANDALONE]='-h --help --version --private-network -b --boot --read-only -q --quiet --share-system --keep-unit --network-veth -j --enable-seccomp'
                       [ARG]='-D --directory -u --user --uuid --capability --drop-capability --link-journal --bind --bind-ro -M --machine
                              -S --slice --setenv -Z --selinux-context -L --selinux-apifs-context --register --network-interface --network-bridge
                              --personality -i --image --tmpfs --volatile

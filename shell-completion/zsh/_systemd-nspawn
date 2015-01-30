@@ -41,4 +41,5 @@ _arguments \
     '--personality=[Control the architecture ("personality") reported by uname(2) in the container.]' \
     {--quiet,-q}'[Turns off any status output by the tool itself.]' \
     {--help,-h}'[Print a short help text and exit.]' \
-    '--version[Print a short version string and exit.]'
+    '--version[Print a short version string and exit.]' \
+    '--enable-seccomp=[Enables seccomp protections.]'

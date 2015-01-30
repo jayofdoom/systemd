@@ -840,6 +840,12 @@
                                 needed.</para></listitem>
                         </varlistentry>
 
+			<varlistentry>
+				<term><option>--enable-seccomp</option></term>
+
+				<listitem><para>Enables seccomp protections for the container.</para></listitem>
+			</varlistentry>
+
                         <xi:include href="standard-options.xml" xpointer="help" />
                         <xi:include href="standard-options.xml" xpointer="version" />
                 </variablelist>
