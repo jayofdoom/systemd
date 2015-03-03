@@ -102,6 +102,11 @@ typedef struct ExposePort {
         LIST_FIELDS(struct ExposePort, ports);
 } ExposePort;
 
+typedef struct CapSeccompPair {
+        int scmp_syscall_num;
+        uint64_t capability;
+} CapSeccompPair;
+
 typedef enum ContainerStatus {
         CONTAINER_TERMINATED,
         CONTAINER_REBOOTED
@@ -2567,23 +2572,19 @@ static int setup_ipvlan(pid_t pid) {
 static int setup_seccomp(void) {
 
 #ifdef HAVE_SECCOMP
-        static const int blacklist[] = {
-                SCMP_SYS(kexec_load),
-                SCMP_SYS(open_by_handle_at),
-                SCMP_SYS(iopl),
-                SCMP_SYS(ioperm),
-                SCMP_SYS(swapon),
-                SCMP_SYS(swapoff),
-        };
-
-        static const int kmod_blacklist[] = {
-                SCMP_SYS(init_module),
-                SCMP_SYS(finit_module),
-                SCMP_SYS(delete_module),
+        static const CapSeccompPair blacklist[] = {
+                { SCMP_SYS(iopl), CAP_SYS_RAWIO },
+                { SCMP_SYS(ioperm), CAP_SYS_RAWIO },
+                { SCMP_SYS(kexec_load), CAP_SYS_BOOT },
+                { SCMP_SYS(swapon), CAP_SYS_ADMIN },
+                { SCMP_SYS(swapoff), CAP_SYS_ADMIN },
+                { SCMP_SYS(open_by_handle_at), CAP_SYS_ADMIN },
+                { SCMP_SYS(init_module), CAP_SYS_MODULE },
+                { SCMP_SYS(finit_module), CAP_SYS_MODULE },
+                { SCMP_SYS(delete_module), CAP_SYS_MODULE },
         };
 
         scmp_filter_ctx seccomp;
-        unsigned i;
         int r;
 
         seccomp = seccomp_init(SCMP_ACT_ALLOW);
@@ -2596,29 +2597,19 @@ static int setup_seccomp(void) {
                 goto finish;
         }
 
-        for (i = 0; i < ELEMENTSOF(blacklist); i++) {
-                r = seccomp_rule_add(seccomp, SCMP_ACT_ERRNO(EPERM), blacklist[i], 0);
-                if (r == -EFAULT)
-                        continue; /* unknown syscall */
-                if (r < 0) {
-                        log_error_errno(r, "Failed to block syscall: %m");
-                        goto finish;
+        for ( unsigned i = 0; i < ELEMENTSOF(blacklist); i++ ) {
+                if (!(arg_retain & (1ULL << blacklist[i].capability))) {
+                       r = seccomp_rule_add(seccomp, SCMP_ACT_ERRNO(EPERM),
+                                            blacklist[i].scmp_syscall_num, 0);
+                       if (r == -EFAULT)
+                              continue; /* unknown syscall */
+                       if (r < 0) {
+                              log_error_errno(r, "Failed to block syscall: %m");
+                              goto finish;
+                       }
                 }
         }
 
-        /* If the CAP_SYS_MODULE capability is not requested then
-         * we'll block the kmod syscalls too */
-        if (!(arg_retain & (1ULL << CAP_SYS_MODULE))) {
-                for (i = 0; i < ELEMENTSOF(kmod_blacklist); i++) {
-                        r = seccomp_rule_add(seccomp, SCMP_ACT_ERRNO(EPERM), kmod_blacklist[i], 0);
-                        if (r == -EFAULT)
-                                continue; /* unknown syscall */
-                        if (r < 0) {
-                                log_error_errno(r, "Failed to block syscall: %m");
-                                goto finish;
-                        }
-                }
-        }
 
         /*
            Audit is broken in containers, much of the userspace audit
