@@ -2564,26 +2564,55 @@ static int setup_ipvlan(pid_t pid) {
         return 0;
 }
 
+#ifdef HAVE_SECCOMP
+static int add_seccomp_unless_capability(
+        const int *blacklist,
+        size_t blacklist_length,
+        scmp_filter_ctx seccomp,
+        int capability) {
+
+        int r = 0;
+
+        if (!(arg_retain & (1ULL << capability))) {
+                for (unsigned i = 0; i < blacklist_length; i++) {
+                        r = seccomp_rule_add(seccomp, SCMP_ACT_ERRNO(EPERM), blacklist[i], 0);
+                        if (r == -EFAULT)
+                                continue; /* unknown syscall */
+                        if (r < 0) {
+                                log_error_errno(r, "Failed to block syscall: %m");
+                                return r;
+                        }
+                }
+        }
+        return r;
+}
+#endif
+
 static int setup_seccomp(void) {
 
 #ifdef HAVE_SECCOMP
-        static const int blacklist[] = {
-                SCMP_SYS(kexec_load),
-                SCMP_SYS(open_by_handle_at),
+        static const int sysrawio_blacklist[] = {
                 SCMP_SYS(iopl),
                 SCMP_SYS(ioperm),
-                SCMP_SYS(swapon),
-                SCMP_SYS(swapoff),
         };
 
-        static const int kmod_blacklist[] = {
+        static const int sysboot_blacklist[] = {
+                SCMP_SYS(kexec_load),
+        };
+
+        static const int sysadmin_blacklist[] = {
+                SCMP_SYS(swapon),
+                SCMP_SYS(swapoff),
+                SCMP_SYS(open_by_handle_at),
+        };
+
+        static const int sysmodule_blacklist[] = {
                 SCMP_SYS(init_module),
                 SCMP_SYS(finit_module),
                 SCMP_SYS(delete_module),
         };
 
         scmp_filter_ctx seccomp;
-        unsigned i;
         int r;
 
         seccomp = seccomp_init(SCMP_ACT_ALLOW);
@@ -2596,28 +2625,53 @@ static int setup_seccomp(void) {
                 goto finish;
         }
 
-        for (i = 0; i < ELEMENTSOF(blacklist); i++) {
-                r = seccomp_rule_add(seccomp, SCMP_ACT_ERRNO(EPERM), blacklist[i], 0);
-                if (r == -EFAULT)
-                        continue; /* unknown syscall */
-                if (r < 0) {
-                        log_error_errno(r, "Failed to block syscall: %m");
-                        goto finish;
-                }
+        /* If the CAP_SYS_RAWIO capability is not requested,
+         * then block iopl and ioperm */
+        r = add_seccomp_unless_capability(
+                sysrawio_blacklist,
+                ELEMENTSOF(sysrawio_blacklist),
+                seccomp,
+                CAP_SYS_RAWIO
+        );
+
+        if (r < 0) {
+                goto finish;
+        }
+
+        /* If the CAP_SYS_BOOT capability is not requested then
+         * we'll block kexec syscall too */
+        r = add_seccomp_unless_capability(
+                sysboot_blacklist,
+                ELEMENTSOF(sysboot_blacklist),
+                seccomp,
+                CAP_SYS_BOOT
+        );
+        if (r < 0) {
+                goto finish;
+        }
+
+        /* If the CAP_SYS_ADMIN capability is not requested then
+         * we'll block use of swap and open_by_handle_at */
+        r = add_seccomp_unless_capability(
+                sysadmin_blacklist,
+                ELEMENTSOF(sysadmin_blacklist),
+                seccomp,
+                CAP_SYS_BOOT
+        );
+        if (r < 0) {
+                goto finish;
         }
 
         /* If the CAP_SYS_MODULE capability is not requested then
          * we'll block the kmod syscalls too */
-        if (!(arg_retain & (1ULL << CAP_SYS_MODULE))) {
-                for (i = 0; i < ELEMENTSOF(kmod_blacklist); i++) {
-                        r = seccomp_rule_add(seccomp, SCMP_ACT_ERRNO(EPERM), kmod_blacklist[i], 0);
-                        if (r == -EFAULT)
-                                continue; /* unknown syscall */
-                        if (r < 0) {
-                                log_error_errno(r, "Failed to block syscall: %m");
-                                goto finish;
-                        }
-                }
+        r = add_seccomp_unless_capability(
+                sysmodule_blacklist,
+                ELEMENTSOF(sysmodule_blacklist),
+                seccomp,
+                CAP_SYS_MODULE
+        );
+        if (r < 0) {
+                goto finish;
         }
 
         /*
