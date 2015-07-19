@@ -2567,13 +2567,19 @@ static int setup_ipvlan(pid_t pid) {
 static int setup_seccomp(void) {
 
 #ifdef HAVE_SECCOMP
-        static const int blacklist[] = {
-                SCMP_SYS(kexec_load),
-                SCMP_SYS(open_by_handle_at),
+        static const int sysrawio_blacklist[] = {
                 SCMP_SYS(iopl),
                 SCMP_SYS(ioperm),
+        };
+
+        static const int sysboot_blacklist[] = {
+                SCMP_SYS(kexec_load),
+        };
+
+        static const int sysadmin_blacklist[] = {
                 SCMP_SYS(swapon),
                 SCMP_SYS(swapoff),
+                SCMP_SYS(open_by_handle_at),
         };
 
         static const int kmod_blacklist[] = {
@@ -2596,13 +2602,45 @@ static int setup_seccomp(void) {
                 goto finish;
         }
 
-        for (i = 0; i < ELEMENTSOF(blacklist); i++) {
-                r = seccomp_rule_add(seccomp, SCMP_ACT_ERRNO(EPERM), blacklist[i], 0);
-                if (r == -EFAULT)
-                        continue; /* unknown syscall */
-                if (r < 0) {
-                        log_error_errno(r, "Failed to block syscall: %m");
-                        goto finish;
+        /* If the CAP_SYS_RAWIO capability is not requested,
+         * then block iopl and ioperm */
+        if (!(arg_retain & (1ULL << CAP_SYS_RAWIO))) {
+                for (i = 0; i < ELEMENTSOF(sysrawio_blacklist); i++) {
+                        r = seccomp_rule_add(seccomp, SCMP_ACT_ERRNO(EPERM), sysrawio_blacklist[i], 0);
+                        if (r == -EFAULT)
+                                continue; /* unknown syscall */
+                        if (r < 0) {
+                                log_error_errno(r, "Failed to block syscall: %m");
+                                goto finish;
+                        }
+                }
+        }
+
+        /* If the CAP_SYS_BOOT capability is not requested then
+         * we'll block kexec syscall too */
+        if (!(arg_retain & (1ULL << CAP_SYS_BOOT))) {
+                for (i = 0; i < ELEMENTSOF(sysboot_blacklist); i++) {
+                        r = seccomp_rule_add(seccomp, SCMP_ACT_ERRNO(EPERM), sysboot_blacklist[i], 0);
+                        if (r == -EFAULT)
+                                continue; /* unknown syscall */
+                        if (r < 0) {
+                                log_error_errno(r, "Failed to block syscall: %m");
+                                goto finish;
+                        }
+                }
+        }
+
+        /* If the CAP_SYS_ADMIN capability is not requested then
+         * we'll block use of swap and open_by_handle_at */
+        if (!(arg_retain & (1ULL << CAP_SYS_ADMIN))) {
+                for (i = 0; i < ELEMENTSOF(sysadmin_blacklist); i++) {
+                        r = seccomp_rule_add(seccomp, SCMP_ACT_ERRNO(EPERM), sysadmin_blacklist[i], 0);
+                        if (r == -EFAULT)
+                                continue; /* unknown syscall */
+                        if (r < 0) {
+                                log_error_errno(r, "Failed to block syscall: %m");
+                                goto finish;
+                        }
                 }
         }
 
